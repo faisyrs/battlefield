@@ -28,7 +28,7 @@ section{padding-bottom:8px}
 <div class="flex" style="margin-top:7px"><button id="cloudCreate">New cloud game</button><button id="cloudLoad">Load cloud game</button><button id="cloudSave">Save cloud game</button></div>
 <div class="flex" style="margin-top:7px"><button id="cloudSignOut">Sign out</button><button id="cloudHistory">History</button></div>
 <p class="status" id="cloudStatus">Not signed in. Cloud saving requires email authentication.</p>
-<label for="cloudGameSelect">Saved games</label><select id="cloudGameSelect" style="max-width:100%;width:100%"><option value="">Choose a saved game</option></select><button id="cloudRefreshGames">Refresh games</button><p class="status" id="cloudGameId">No cloud game selected.</p>
+<label for="cloudGameSelect">Saved games</label><select id="cloudGameSelect" style="max-width:100%;width:100%"><option value="">Choose a saved game</option></select><div class="flex"><button id="cloudConfirmGame" class="primary">Load selected game</button><button id="cloudRefreshGames">Refresh games</button></div><p class="status" id="cloudGameId">No cloud game selected.</p>
 </section>
 <section><h2>Save and transfer</h2><div class="flex"><button id="save">Save locally</button><button id="export">Export JSON</button><button id="import">Import JSON</button></div><textarea id="json" placeholder="Paste game JSON here"></textarea><p class="status">Local saves work offline. Cloud saves use Supabase Auth and revision-checked persistence; export remains available.</p></section>
 <div class="notice">Movement characteristics are editable starting estimates, not verified 11th-edition datasheets. The table does not enforce terrain, engagement range, coherency, pivots, or charge eligibility. The official map is a calibrated image.</div>
@@ -219,23 +219,24 @@ async function refreshGames(){
 }
 async function loadGame(id){
  if(!id)throw Error('Choose a saved game.');
- if(cloudRevision!==null&&!confirm('Load saved game? Unsaved local changes will be discarded.'))return;
+ if(cloudRevision!==null&&!confirm('Load saved game? Unsaved local changes will be discarded.'))return false;
  const d=await cloudRequest('/rest/v1/tabletop_games?id=eq.'+encodeURIComponent(id)+'&select=id,name,revision,state');
  if(d.length!==1)throw Error('Game not found or not authorized.');
  await cloudLoadState(d[0].state);cloudGameId=id;cloudRevision=Number(d[0].revision);
  localStorage.setItem('40k-cloud-game-id',id);
  const url=new URL(location.href);url.searchParams.set('game',id);window.history.replaceState(null,'',url);
  $('cloudGameSelect').value=id;$('cloudGameId').textContent=d[0].name+' · revision '+cloudRevision;
- cloudMessage('Cloud game loaded (revision '+cloudRevision+').');
+ cloudMessage('Cloud game loaded (revision '+cloudRevision+').');return true;
 }
 $('cloudRefreshGames').onclick=()=>runCloud(refreshGames);
+$('cloudConfirmGame').onclick=()=>runCloud(async()=>{await loadGame($('cloudGameSelect').value)});
 $('cloudLoad').onclick=()=>runCloud(async()=>{await loadGame($('cloudGameSelect').value||cloudGameId)});
 $('barGames').onclick=()=>runCloud(async()=>{
  const dialog=document.createElement('dialog');dialog.style.cssText='max-width:90vw;background:#1b2a35;color:white;border:1px solid #607080;padding:16px';
  const title=document.createElement('h3');title.textContent='Load saved game';dialog.append(title);
  const close=document.createElement('button');close.textContent='Cancel';close.onclick=()=>dialog.close();dialog.append(close);
  const all=await refreshGames();
- for(const g of all){const b=document.createElement('button');b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=g.name+' · r'+g.revision+' · '+new Date(g.updated_at).toLocaleString();b.onclick=()=>runCloud(async()=>{await loadGame(g.id);dialog.close()});dialog.append(b)}
+ for(const g of all){const b=document.createElement('button');b.style.cssText='display:block;width:100%;margin:8px 0;text-align:left';b.textContent=g.name+' · r'+g.revision+' · '+new Date(g.updated_at).toLocaleString();b.onclick=()=>runCloud(async()=>{if(await loadGame(g.id))dialog.close()});dialog.append(b)}
  dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal();
 });
 $('cloudSave').onclick=()=>runCloud(async()=>{
