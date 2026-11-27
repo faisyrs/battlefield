@@ -27,8 +27,20 @@
   force = true
 
 [[redirects]]
-  from = "/oauth/:action"
-  to = "https://mvkqwisscspojgsgddgj.supabase.co/functions/v1/battlefield-oauth/:action"
+  from = "/oauth/register"
+  to = "https://mvkqwisscspojgsgddgj.supabase.co/functions/v1/battlefield-oauth/register"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/oauth/token"
+  to = "https://mvkqwisscspojgsgddgj.supabase.co/functions/v1/battlefield-oauth/token"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/oauth/consent"
+  to = "https://mvkqwisscspojgsgddgj.supabase.co/functions/v1/battlefield-oauth/consent"
   status = 200
   force = true
 
