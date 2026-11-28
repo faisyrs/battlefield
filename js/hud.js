@@ -125,7 +125,7 @@ async function loadSheets() {
   return sheets;
 }
 const baseName = (n) => String(n || "").replace(/^(left|right|center|centre)\s+/i, "").replace(/\s*(—.*|×\s*\d+|x\s*\d+|\d+)$/i, "").replace(/^\d+\s+/, "").trim().toLowerCase();
-const ALIASES = { ghaz: "ghazghkull thraka", dakkarig: "big mek dakkarig", lion: "lion el’jonson", vengeance: "land speeder vengeance", incursors: "incursor squad", "sammael ravenwing": "sammael", "chaplain ravenwing": "ravenwing chaplain" };
+const ALIASES = { ghaz: "ghazghkull thraka", dakkarig: "big mek dakkarig", lion: "lion el’jonson", vengeance: "land speeder vengeance", incursors: "incursor squad", "sammael ravenwing": "sammael", "chaplain ravenwing": "chaplain on bike", "ravenwing chaplain": "chaplain on bike", "lion el’jonson": "lion el’jonson" };
 function sheetFor(u) {
   if (!sheets?.length || !u) return null;
   if (u.datasheet) { const s = sheets.find((x) => x.slug === u.datasheet || x.name === u.datasheet); if (s) return s; }
