@@ -584,6 +584,18 @@ function updateBanner() {
 }
 setInterval(updateBanner, 1500);
 
+// After sign-in with no game selected, open the most recently played game automatically.
+let autoLoaded = false;
+setInterval(async () => {
+  if (autoLoaded || !cloudSession || cloudRevision !== null) return;
+  autoLoaded = true;
+  try {
+    const games = await refreshGames();
+    const id = cloudGameId && games.some((g) => g.id === cloudGameId) ? cloudGameId : games[0]?.id;
+    if (id) { await loadGame(id); toast("Loaded " + (games.find((g) => g.id === id)?.name || "game")); }
+  } catch (e) { toast("Couldn't open your game: " + e.message, 6000); }
+}, 2500);
+
 /* ---------- boot ---------- */
 gs();
 render();
