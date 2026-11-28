@@ -221,7 +221,9 @@ const baseRender = window.render;
 window.render = function () { baseRender(); try { updateHud(); } catch (e) { console.warn("hud", e); } };
 
 const baseLoad = window.cloudLoadState;
+let gameMapId = null;
 window.cloudLoadState = async function (state) {
+  gameMapId = state?.map_id || null;
   await baseLoad(state);
   gs();
   if (sheets) applySheets(); else loadSheets().then(() => render());
@@ -568,6 +570,19 @@ async function realtime() {
   } catch (e) { console.warn("realtime unavailable; polling", e); rtGame = cloudGameId; }
 }
 setInterval(() => { if (!online()) return; if (rtGame !== cloudGameId) { chat = []; lastChatId = 0; unread = 0; realtime(); } pullChat(); if (!sheets) loadSheets().then(render); if (rtClient && cloudSession?.access_token) rtClient.realtime.setAuth(cloudSession.access_token); }, 6000);
+
+/* ---------- sign-in / map status ---------- */
+const banner = el("div", { id: "hudBanner", style: "position:absolute;left:50%;bottom:52px;transform:translateX(-50%);z-index:3;background:#3b2a12f0;border:1px solid #d9a441;border-radius:8px;padding:6px 10px;font-size:13px;display:none;max-width:92%" });
+$("boardArea").append(banner);
+function updateBanner() {
+  let text = "", action = null;
+  if (!cloudSession) { text = "Not signed in — showing the offline sample board. Sign in to load your saved game and its map."; action = ["Sign in", () => { $("barMenu").click(); $("cloudEmail")?.scrollIntoView({ block: "center" }); $("cloudEmail")?.focus(); }]; }
+  else if (cloudRevision === null) { text = "Signed in. Load a game to see its map."; action = ["Games", () => $("barGames").click()]; }
+  else if (!activeCatalogMap && gameMapId) { text = "This game's map didn't load."; action = ["Retry", async () => { try { activeCatalogMap = await fetchCatalogMap(gameMapId); render(); } catch (e) { toast("Map load failed: " + e.message); } }]; }
+  banner.style.display = text ? "block" : "none";
+  if (text) banner.replaceChildren(text, " ", action ? btn(action[0], action[1]) : "");
+}
+setInterval(updateBanner, 1500);
 
 /* ---------- boot ---------- */
 gs();
