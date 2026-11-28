@@ -222,13 +222,38 @@ test("describeChanges reports moves, casualties, phase and score", () => {
   for (const k of ["phase", "score", "moved", "models"]) assert.ok(kinds.includes(k), k);
 });
 
-test("VP caps and history", () => {
+test("score sheet: per-round conditions, counters, caps 45/45 + painted 10, summary rows", () => {
   const s = game([]);
-  E.addVP(s, "da", "primary", 60);
-  assert.equal(s.score.da.primary, 50);
-  E.addVP(s, "da", "secondary", 5, "Assassination");
-  assert.equal(E.vpTotal(s.score.da), 55);
-  assert.equal(s.score.da.history.length, 2);
+  E.setCondition(s, "ork", 1, { kind: "primary", mission: "Immovable Object", index: 0, vp: 3, n: 1 });
+  E.setCondition(s, "ork", 2, { kind: "primary", mission: "Immovable Object", index: 1, vp: 5, n: 2 });
+  E.setCondition(s, "ork", 2, { kind: "secondary", mission: "Assassination", index: 0, vp: 3, n: 1 });
+  assert.equal(s.score.ork.primary, 13);
+  assert.equal(s.score.ork.secondary, 3);
+  E.setCondition(s, "ork", 2, { kind: "primary", mission: "Immovable Object", index: 1, vp: 5, n: 1 }); // lower the counter
+  assert.equal(s.score.ork.primary, 8);
+  for (let r = 1; r <= 5; r++) E.setCondition(s, "ork", r, { kind: "primary", mission: "X", index: 9, vp: 15, n: 1 });
+  assert.equal(s.score.ork.primary, 45, "primary capped at 45");
+  E.setPainted(s, "ork", true);
+  assert.equal(E.vpTotal(s.score.ork), 45 + 3 + 10);
+  E.addVP(s, "ork", "secondary", 2, "manual");
+  assert.equal(s.score.ork.secondary, 5);
+  const sum = E.scoreSummary(s, "ork");
+  const ass = sum.rows.find((r) => r.label === "Assassination");
+  assert.deepEqual(ass.cells, [null, 3, null, null, null]);
+  assert.ok(sum.rows.find((r) => r.label === "Adjustment" && r.kind === "secondary"));
+  E.setCondition(s, "ork", 5, { kind: "primary", mission: "Immovable Object", index: 2, vp: 5, n: 1, eob: true });
+  assert.ok(E.scoreSummary(s, "ork").rows.some((r) => r.label === "End of Battle"));
+});
+
+test("CP is recorded per round and legacy totals migrate into the sheet", () => {
+  const s = game([]);
+  for (let i = 0; i < 10; i++) E.advancePhase(s);
+  assert.equal(s.score.da.cpByRound[2], 2);
+  const old = E.upgradeState({ units: [], score: { ork: { primary: 12, secondary: 4 } } });
+  assert.equal(old.score.ork.primary, 12);
+  E.recomputeScore(old, "ork");
+  assert.equal(old.score.ork.primary, 12);
+  assert.equal(old.score.ork.secondary, 4);
 });
 
 test("datasheet matching handles numbering, sides and aliases", () => {

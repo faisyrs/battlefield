@@ -118,6 +118,13 @@ export function upgradeState(state) {
     sc.cp ??= 0;
     sc.secondaries ??= []; // [{name, mode:'fixed'|'tactical', vp, done}]
     sc.history ??= []; // [{round, phase, kind, delta, reason}]
+    sc.cpByRound ??= {};
+    if (!sc.sheet) {
+      sc.sheet = {};
+      // carry any pre-sheet totals forward as round-1 adjustments
+      if (sc.primary) sc.sheet["1"] = { ...(sc.sheet["1"] || {}), "P|Adjustment|0": { n: Number(sc.primary), vp: 1, kind: "primary", mission: "Adjustment" } };
+      if (sc.secondary) sc.sheet["1"] = { ...(sc.sheet["1"] || {}), "S|Adjustment|0": { n: Number(sc.secondary), vp: 1, kind: "secondary", mission: "Adjustment" } };
+    }
   }
   s.log ??= [];
   s.obstacles ??= []; // [{id, kind:'solid'|'low', polygon:[[x,y]...], label}]
@@ -138,7 +145,7 @@ export function upgradeUnit(u) {
   return u;
 }
 
-export const vpTotal = (sc) => Number(sc.primary || 0) + Number(sc.secondary || 0);
+export const vpTotal = (sc) => Number(sc.primary || 0) + Number(sc.secondary || 0) + (sc.painted ? 10 : 0);
 
 export function findUnit(state, ref) {
   const units = state.units || [];
@@ -403,6 +410,7 @@ export function advancePhase(state, opts = {}) {
     expired.push(...expireEffects(state, { type: "command_start", side: t.active, round: t.round }));
     if (opts.autoCP !== false) for (const s of SIDES) state.score[s].cp = Number(state.score[s].cp || 0) + 1;
   }
+  for (const s of SIDES) state.score[s].cpByRound[t.round] = state.score[s].cp;
   // Each phase starts with fresh movement origins; modifiers (advance, charge) clear.
   for (const u of state.units) { u.bonus = 0; if (u.locationState === "deployed") resetOrigin(u); }
   t.started = true;
@@ -446,25 +454,87 @@ export function belowHalf(u) {
 }
 
 /* ---------- scoring ---------- */
+// Per-round score sheet: score[side].sheet[round][key] = {n, vp, kind:'primary'|'secondary', mission, label, eob}
+// Totals are always recomputed from the sheet (primary cap 45, secondary cap 45, battle-ready 10).
+export const CAPS = { primary: 45, secondary: 45, painted: 10 };
 
+export function conditionKey(kind, mission, index) { return (kind === "primary" ? "P|" : "S|") + mission + "|" + index; }
+export const isCounter = (c) => !!(c.per_each || c.per);
+
+export function setCondition(state, side, round, { kind, mission, index, vp, label, n, eob }) {
+  upgradeState(state);
+  const sc = state.score[side], r = String(round || state.turn.round);
+  sc.sheet[r] ??= {};
+  const key = conditionKey(kind, mission, index);
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  if (!v) delete sc.sheet[r][key];
+  else sc.sheet[r][key] = { n: v, vp: Number(vp) || 0, kind, mission, label: label ? String(label).slice(0, 140) : undefined, eob: eob || undefined };
+  recomputeScore(state, side);
+  log(state, { kind: "score", side, score: kind, mission, n: v, round: Number(r) });
+  return sc;
+}
+
+export function recomputeScore(state, side) {
+  const sc = state.score[side];
+  let p = 0, s2 = 0;
+  for (const r of Object.keys(sc.sheet || {})) for (const e of Object.values(sc.sheet[r])) {
+    const v = e.n * e.vp;
+    if (e.kind === "primary") p += v; else s2 += v;
+  }
+  sc.primary = Math.max(0, Math.min(CAPS.primary, p));
+  sc.secondary = Math.max(0, Math.min(CAPS.secondary, s2));
+  return sc;
+}
+
+/** Manual adjustment (also used by the MCP 'score' op without a mission). */
 export function addVP(state, side, kind, delta, reason) {
   upgradeState(state);
   if (!SIDES.includes(side)) throw Error("Unknown side");
   if (!["primary", "secondary", "cp"].includes(kind)) throw Error("kind must be primary, secondary or cp");
   const sc = state.score[side];
-  sc[kind] = Math.max(0, Number(sc[kind] || 0) + Number(delta || 0));
-  if (kind === "primary") sc.primary = Math.min(sc.primary, 50);
-  if (kind === "secondary") sc.secondary = Math.min(sc.secondary, 40);
+  if (kind === "cp") {
+    sc.cp = Math.max(0, Number(sc.cp || 0) + Number(delta || 0));
+    sc.cpByRound[state.turn.round] = sc.cp;
+  } else {
+    const r = String(state.turn.round);
+    sc.sheet[r] ??= {};
+    const key = (kind === "primary" ? "P|" : "S|") + "Adjustment|0";
+    const cur = sc.sheet[r][key]?.n || 0;
+    // adjustments are stored as n × 1 VP and may be negative in total
+    const n = cur + Number(delta || 0);
+    if (!n) delete sc.sheet[r][key]; else sc.sheet[r][key] = { n, vp: 1, kind, mission: "Adjustment" };
+    recomputeScore(state, side);
+  }
   sc.history.push({ round: state.turn.round, phase: state.turn.phase, kind, delta: Number(delta), reason: reason ? String(reason).slice(0, 120) : undefined });
   if (sc.history.length > 200) sc.history.shift();
   log(state, { kind: "score", side, score: kind, delta: Number(delta), reason });
   return { side, primary: sc.primary, secondary: sc.secondary, cp: sc.cp, total: vpTotal(sc) };
 }
 
+export function setPainted(state, side, on) { upgradeState(state); state.score[side].painted = !!on; return state.score[side]; }
+
 export function setSecondaries(state, side, cards) {
   upgradeState(state);
   state.score[side].secondaries = (cards || []).slice(0, 6).map((c) => ({ name: String(c.name), mode: c.mode === "fixed" ? "fixed" : "tactical", vp: Number(c.vp || 0), done: !!c.done }));
   return state.score[side].secondaries;
+}
+
+/** Round-by-round summary rows for one side (like a mission scoresheet). */
+export function scoreSummary(state, side, rounds = 5) {
+  upgradeState(state);
+  const sc = state.score[side];
+  const rows = new Map();
+  const row = (kind, label) => { const k = kind + "|" + label; if (!rows.has(k)) rows.set(k, { kind, label, cells: Array(rounds).fill(null), total: 0 }); return rows.get(k); };
+  for (let r = 1; r <= rounds; r++) for (const e of Object.values(sc.sheet?.[r] || {})) {
+    const rw = row(e.kind, e.eob ? "End of Battle" : e.mission);
+    rw.cells[r - 1] = (rw.cells[r - 1] || 0) + e.n * e.vp;
+    rw.total += e.n * e.vp;
+  }
+  const order = (x) => (x.kind === "primary" ? 0 : 1) * 1000 + (x.label === "End of Battle" ? 500 : 0) + (x.label === "Adjustment" ? 900 : 0);
+  const list = [...rows.values()].sort((a, b) => order(a) - order(b) || a.label.localeCompare(b.label));
+  for (const c of sc.secondaries || []) if (!list.some((x) => x.kind === "secondary" && x.label === c.name)) list.push({ kind: "secondary", label: c.name, cells: Array(rounds).fill(null), total: 0 });
+  const cp = Array.from({ length: rounds }, (_, i) => (sc.cpByRound?.[i + 1] ?? null));
+  return { side, primary: sc.primary, secondary: sc.secondary, painted: sc.painted ? CAPS.painted : 0, total: vpTotal(sc), caps: CAPS, rows: list, cp };
 }
 
 /* ---------- distances, range, visibility ---------- */

@@ -32,6 +32,7 @@ const changeSchema = {
     model: { type: "integer" }, count: { type: "integer" }, indexes: { type: "array", items: { type: "integer" } },
     label: { type: "string" }, expires: { type: "string", enum: ["manual", "end_of_phase", "end_of_turn", "end_of_round", "start_of_your_command"] }, remove: { type: "boolean" }, mods: { type: "object" },
     side: SIDE, kind: { type: "string", enum: ["primary", "secondary", "cp"] }, delta: { type: "number" }, reason: { type: "string" },
+    mission: { type: "string", description: "score: mission card name to mark a condition on the round score sheet" }, index: { type: "integer", description: "score: condition index on that card" }, vp: { type: "number", description: "score: VP per count for that condition" }, n: { type: "integer", description: "score: count (1 for yes/no conditions, 0 clears)" },
     to: { type: "string", description: "phase: 'next' or a phase name" }, round: { type: "integer" }, active: SIDE,
     fields: { type: "object", description: "set: {wounds, oc, keywords, datasheet, loadout, move}" },
     disembark: { type: "number" }, enemy: { type: "number" }, edge: { type: "number" },
@@ -224,7 +225,13 @@ Deno.serve(async (req) => {
         case "destroy": if (!u) fail("unit required"); E.destroyUnit(state, u, { by: c.reason }); applied.push({ op: "destroy", unit: u.name }); break;
         case "restore": if (!u) fail("unit required"); E.restoreUnit(state, u); applied.push({ op: "restore", unit: u.name }); break;
         case "effect": if (!u) fail("unit required"); if (!c.label) fail("label required"); if (c.remove) E.removeEffect(state, u, c.label); else E.addEffect(state, u, { label: c.label, expires: c.expires, mods: c.mods, note: c.reason }); applied.push({ op: "effect", unit: u.name, label: c.label, removed: !!c.remove }); break;
-        case "score": applied.push({ op: "score", ...E.addVP(state, c.side, c.kind || "primary", c.delta, c.reason) }); break;
+        case "score": {
+          if (c.mission) {
+            const sc = E.setCondition(state, c.side, c.round || state.turn.round, { kind: c.kind === "secondary" ? "secondary" : "primary", mission: c.mission, index: c.index ?? 0, vp: c.vp, n: c.n ?? 1, label: c.reason });
+            applied.push({ op: "score", side: c.side, mission: c.mission, primary: sc.primary, secondary: sc.secondary, total: E.vpTotal(sc) });
+          } else applied.push({ op: "score", ...E.addVP(state, c.side, c.kind || "primary", c.delta, c.reason) });
+          break;
+        }
         case "phase": { if (c.to === "next" || (!c.to && !c.phase && c.round == null)) { const r = E.advancePhase(state); applied.push({ op: "phase", to: r.to, prompts: r.prompts }); } else { E.setPhase(state, { round: c.round, active: c.active, phase: c.to || c.phase }); applied.push({ op: "phase", to: { ...state.turn } }); } break; }
         case "set": {
           if (!u) fail("unit required");

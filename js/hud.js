@@ -37,6 +37,7 @@ document.head.append(el("style", {}, `
 #hudTurn .ph{color:#ffe080}#hudScore b{font-size:13px}#hudScore .cp{color:#9fb6c3;font-weight:400}
 @media(max-width:640px){#hudTurn,#hudScore{padding:4px 5px;font-size:11px}#unitCard{max-width:72vw}#unitCard .pip{min-width:17px;height:17px;font-size:10px}}
 #hudScore{position:absolute;left:8px;top:40px;z-index:3;background:#14242de0}
+#hudObj{position:absolute;left:72px;top:72px;z-index:3;background:#226c89;font:600 12px system-ui;padding:5px 8px;border-radius:6px;border:1px solid #5d7786;color:#fff}
 #hudLayers{position:absolute;left:8px;top:72px;z-index:3;background:#14242de0;font:600 12px system-ui;padding:5px 8px;border-radius:6px;border:1px solid #5d7786;color:#eef5f8}
 #phaseBar{flex:0 0 auto;display:flex;gap:4px;align-items:center;padding:4px 6px;background:#16242e;border-top:1px solid #344956;overflow-x:auto;z-index:6}
 #phaseBar button{flex:0 0 auto;padding:7px 9px;font-size:12.5px;white-space:nowrap}
@@ -56,6 +57,27 @@ dialog.hud .grid{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-
 dialog.hud .btns{display:flex;flex-wrap:wrap;gap:5px}dialog.hud table{border-collapse:collapse;font-size:12px;width:100%}
 dialog.hud td,dialog.hud th{border-bottom:1px solid #33495a;padding:3px 4px;text-align:left}
 dialog.hud .muted{color:#9fb6c3;font-size:12px}
+dialog.hud.full{width:min(100vw,760px);max-width:100vw;max-height:100dvh;height:min(100dvh,980px)}
+@media(max-width:700px){dialog.hud.full{width:100vw;height:100dvh;margin:0;border-radius:0;border:0;padding:10px}}
+dialog.hud .tabs{display:flex;gap:4px;flex-wrap:wrap;align-items:center;position:sticky;top:-12px;background:#1b2a35;padding:6px 0;z-index:2}
+dialog.hud .tabs button.on{background:#226c89;border-color:#9fd3ff}dialog.hud .tabs button.now{box-shadow:inset 0 -3px #ffe080}
+dialog.hud h3 .tot,dialog.hud .grp .tot{float:right}
+dialog.hud .card{background:#223442;border:1px solid #36505f;border-radius:8px;padding:6px 8px;margin:6px 0}dialog.hud .card.done{opacity:.55}
+dialog.hud .cardh{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+dialog.hud .cond{display:flex;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid #2e4452;font-size:13px}
+dialog.hud .cond.got{background:#1e4a3a55}dialog.hud .cond .vp{min-width:44px;font-weight:700;color:#ffe080;font-size:12px}
+dialog.hud .cond .txt{flex:1}dialog.hud .cond input[type=checkbox]{width:24px;height:24px}
+dialog.hud .ctr{display:inline-flex;gap:6px;align-items:center}dialog.hud .ctr button{min-width:34px;padding:6px}dialog.hud .ctr b{min-width:18px;text-align:center}
+dialog.hud .totals{position:sticky;bottom:-12px;background:#16242e;padding:8px;margin-top:10px;border-top:1px solid #36505f;font-size:13px}
+dialog.hud .sumcard{background:#f2f2f2;color:#111;border-radius:10px;overflow:hidden;margin:10px 0}
+dialog.hud .sumh{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-left:6px solid;font-size:16px;background:#fff;color:#111}
+dialog.hud .vpb{color:#fff;border-radius:6px;padding:3px 8px;font-weight:700}
+dialog.hud table.sum{width:100%;border-collapse:collapse;font-size:13px}
+dialog.hud table.sum td,dialog.hud table.sum th{border:0;padding:6px 4px;text-align:center;color:#111}
+dialog.hud table.sum td.lbl{text-align:right;padding-right:8px;white-space:nowrap}
+dialog.hud table.sum .alt{background:#d7e2ea}dialog.hud table.sum .now{outline:2px solid #e0a800;outline-offset:-2px}
+dialog.hud table.sum tr.grp td{background:#c9c9c9;font-weight:800;text-align:left;padding:8px 10px;letter-spacing:.03em}
+dialog.hud table.sum td.r,dialog.hud table.sum th.r{cursor:pointer;width:13%}
 #chatLog{max-height:45dvh;overflow:auto;font-size:13px;display:flex;flex-direction:column;gap:4px}
 #chatLog .ai{color:#ffd9a0}#chatBadge{background:#c8553f;border-radius:8px;padding:0 5px;margin-left:3px;font-size:11px}
 `));
@@ -66,13 +88,15 @@ const turnBtn = el("button", { id: "hudTurn", title: "Turn and phase" });
 const scoreBtn = el("button", { id: "hudScore", title: "Victory points and CP" });
 
 turnBtn.onclick = () => openLog();
-scoreBtn.onclick = () => openScore();
+scoreBtn.onclick = () => openSummary();
 const phaseBar = el("div", { id: "phaseBar", role: "toolbar", "aria-label": "Phase actions" });
 $("bottom-bar").before(phaseBar);
 const card = el("div", { id: "unitCard" });
 const toastEl = el("div", { id: "hudToast" });
 const layersBtn = el("button", { id: "hudLayers", title: "Map layers" }, "Layers");
-$("boardArea").append(card, toastEl, scoreBtn, layersBtn);
+const objBtn = el("button", { id: "hudObj", title: "Score objectives" }, "Objectives");
+objBtn.onclick = () => openObjectives();
+$("boardArea").append(card, toastEl, scoreBtn, layersBtn, objBtn);
 layersBtn.onclick = () => openLayers();
 let toastTimer;
 function toast(t, ms = 3500) { toastEl.textContent = t; toastEl.style.display = "block"; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastEl.style.display = "none"), ms); }
@@ -327,7 +351,7 @@ function updatePhaseBar() {
   const kids = [turnBtn];
   if (t.phase === "command") {
     kids.push(btn("Battle-shock", () => battleShock(u), { disabled: !u || !onTable, title: "Roll 2D6 vs Leadership for the selected unit" }));
-    kids.push(btn("Score", openScore));
+    kids.push(btn("Objectives", () => openObjectives()));
   }
   if (t.phase === "movement") {
     kids.push(btn("Advance", () => advanceUnit(u), { disabled: !mine || !onTable || E.hasEffect(u, "Advanced") }));
@@ -429,8 +453,8 @@ async function nextPhase() {
   const r = E.advancePhase(st);
   rings = false; losTarget = null;
   await commit("turn", "Now: R" + r.to.round + " " + SIDE_SHORT[r.to.active] + " " + E.PHASE_LABEL[r.to.phase] + (r.expired.length ? " · " + r.expired.length + " effect(s) expired" : ""));
-  if (r.gameOver) { toast("Game over! " + E.SIDES.map((s) => SIDE_SHORT[s] + " " + E.vpTotal(st.score[s])).join(" – "), 10000); openScore(); return; }
-  if (endTurn || r.to.phase === "command") openScore({ prompt: endTurn ? "End of " + SIDE_SHORT[r.from.active] + " turn: score end-of-turn conditions." : "Command phase: score command-phase conditions.", forSide: endTurn ? r.from.active : r.to.active, phase: endTurn ? "end_of_turn" : "command", round: r.from.round });
+  if (r.gameOver) { toast("Game over! " + E.SIDES.map((s) => SIDE_SHORT[s] + " " + E.vpTotal(st.score[s])).join(" – "), 10000); openSummary(); return; }
+  if (endTurn || r.to.phase === "command") openObjectives({ prompt: endTurn ? "End of " + SIDE_SHORT[r.from.active] + " turn: score end-of-turn conditions." : "Command phase: score command-phase conditions.", side: endTurn ? r.from.active : r.to.active, round: endTurn ? r.from.round : r.to.round });
 }
 
 /* ---------- sheets ---------- */
@@ -441,45 +465,118 @@ async function mcp(name, args) {
   return JSON.parse(j.result.content[0].text);
 }
 
-function openScore(ctx = {}) {
-  sheet("Score", async (b, rebuild) => {
-    const st = gs();
+/* ---------- objectives & scoring pages ---------- */
+let missionData = null;
+async function loadMissions() {
+  if (missionData) return missionData;
+  const [primary, secondary] = await Promise.all([
+    cloudRequest("/rest/v1/mission_matrix?edition=eq.11&select=mission_name,disposition,opponent_disposition,scoring,source_url"),
+    cloudRequest("/rest/v1/mission_secondary_catalog?edition=eq.11&select=mission_name,fixed_available,scoring,source_url&order=mission_name"),
+  ]);
+  return (missionData = { primary, secondary });
+}
+const dispositionOf = (st, side) => (side === "ork" ? st.setup?.orkDisposition : st.setup?.daDisposition);
+function primaryFor(st, side) {
+  const d = dispositionOf(st, side), o = dispositionOf(st, E.otherSide(side));
+  return missionData?.primary.find((m) => m.disposition === d && m.opponent_disposition === o) || null;
+}
+const conds = (m) => (Array.isArray(m?.scoring) ? m.scoring : m?.scoring?.conditions || []);
+const isEob = (c) => /end of battle/i.test(c.timing || "");
+let commitTimer = null;
+function commitSoon(action = "score") { clearTimeout(commitTimer); commitTimer = setTimeout(async () => { if (saving) return commitSoon(action); await commit(action); }, 700); render(); }
+
+function fullSheet(title, build) {
+  const d = sheet(title, build);
+  d.classList.add("full");
+  return d;
+}
+
+function openObjectives(ctx = {}) {
+  const st0 = gs();
+  let side = ctx.side || st0.turn.active, round = ctx.round || st0.turn.round;
+  fullSheet("Objectives", async (b, rebuild) => {
+    const st = gs(), sc = st.score[side];
+    b.append(el("div", { class: "tabs" },
+      E.SIDES.map((x) => btn(SIDE_SHORT[x] + " " + E.vpTotal(st.score[x]), () => { side = x; rebuild(); }, { cls: x === side ? "on" : "" })),
+      el("span", { style: "flex:1" }),
+      [1, 2, 3, 4, 5].map((r) => btn("R" + r, () => { round = r; rebuild(); }, { cls: (r === round ? "on" : "") + (r === st.turn.round ? " now" : "") }))));
     if (ctx.prompt) b.append(el("p", { class: "muted" }, ctx.prompt));
+    try { await loadMissions(); } catch (e) { b.append(el("p", { class: "muted" }, "Sign in to load mission cards (" + e.message + "). Manual adjustments still work.")); }
     const oc = E.objectiveControl(st, objectives());
-    if (oc.objectives.length) b.append(el("p", { class: "muted" }, "Objectives held: " + E.SIDES.map((s) => SIDE_SHORT[s] + " " + oc.held[s]).join(" · ") + " (" + oc.objectives.length + " total)"));
-    for (const s of E.SIDES) {
-      const sc = st.score[s];
-      b.append(el("h3", { style: "color:" + SIDE_COLOR[s] }, E.SIDE_LABEL[s] + " — " + E.vpTotal(sc) + " VP"));
-      const g = el("div", { class: "grid" });
-      for (const k of ["primary", "secondary", "cp"]) {
-        g.append(el("span", {}, k === "cp" ? "CP" : k[0].toUpperCase() + k.slice(1)), el("b", {}, sc[k]),
-          el("span", { class: "btns" }, [-1, 1, ...(k === "cp" ? [] : [3, 5])].map((dlt) => btn((dlt > 0 ? "+" : "") + dlt, () => { E.addVP(st, s, k, dlt, "manual"); commit("score"); rebuild(); }))));
-      }
-      b.append(g);
-      const cards = sc.secondaries || [];
-      b.append(el("div", { class: "btns", style: "margin-top:5px" }, cards.map((c, i) => el("span", { class: "chip", style: "background:#2a4150;border-radius:9px;padding:3px 8px" }, (c.done ? "✓ " : "") + c.name + " (" + c.mode[0] + ")", " ", btn(c.done ? "↺" : "✓", () => { c.done = !c.done; commit("score"); rebuild(); }), btn("×", () => { cards.splice(i, 1); commit("score"); rebuild(); }))), btn("+ Secondary", () => pickSecondary(s, rebuild))));
+    const held = oc.objectives.filter((o) => o.controller === side);
+    const heldNoHome = held.filter((o) => !(o.kind === "home" && (!o.side || o.side === E.sideRole(st.setup, side)))).length;
+    if (oc.objectives.length) b.append(el("p", { class: "muted" }, "Board now: " + E.SIDE_LABEL[side] + " control " + held.length + " objective(s), " + heldNoHome + " excluding home."));
+    const rowFor = (kind, mission, c, i) => {
+      const key = E.conditionKey(kind, mission, i), cur = sc.sheet?.[round]?.[key]?.n || 0;
+      const set = (n) => { E.setCondition(st, side, round, { kind, mission, index: i, vp: c.vp, label: c.condition || c.per, n, eob: isEob(c) }); commitSoon(); rebuild(); };
+      const text = (c.condition || (c.per ? "Per " + c.per : "")) + (c.max ? " (max " + c.max + ")" : "");
+      const hint = E.isCounter(c) && /objective/i.test(text) ? el("small", { class: "muted" }, " board: " + (/excluding your home/i.test(text) ? heldNoHome : held.length)) : "";
+      const ctl = E.isCounter(c)
+        ? el("span", { class: "ctr" }, btn("−", () => set(cur - 1), { disabled: !cur }), el("b", {}, cur), btn("+", () => set(cur + 1), { disabled: !!(c.max && (cur + 1) * c.vp > c.max) }))
+        : (() => { const cb = el("input", { type: "checkbox" }); cb.checked = !!cur; cb.onchange = () => set(cb.checked ? 1 : 0); return cb; })();
+      return el("div", { class: "cond" + (cur ? " got" : "") }, el("span", { class: "vp" }, c.vp + (E.isCounter(c) ? "×" : "") + " VP"), el("span", { class: "txt" }, text, hint, isEob(c) ? el("small", { class: "muted" }, " · end of battle") : ""), ctl);
+    };
+    const subtotal = (kind, mission) => Object.values(sc.sheet?.[round] || {}).filter((e) => e.kind === kind && e.mission === mission).reduce((a, e) => a + e.n * e.vp, 0);
+    const pm = primaryFor(st, side);
+    b.append(el("h3", {}, "Primary", el("span", { class: "tot" }, sc.primary + "/" + E.CAPS.primary)));
+    if (!pm) b.append(el("p", { class: "muted" }, dispositionOf(st, side) ? "No primary card found for " + dispositionOf(st, side) + "." : "Set dispositions in the game setup to load the primary card."));
+    else {
+      const list = conds(pm).map((c, i) => [c, i]).filter(([c]) => !c.rounds || c.rounds.includes(round));
+      b.append(el("div", { class: "card" }, el("div", { class: "cardh" }, el("b", {}, pm.mission_name), el("span", { style: "margin-left:auto" }, "R" + round + ": " + subtotal("primary", pm.mission_name) + " VP")),
+        list.length ? list.map(([c, i]) => rowFor("primary", pm.mission_name, c, i)) : el("p", { class: "muted" }, "Nothing scores in round " + round + ".")));
     }
-    if (online() && st.setup?.orkDisposition) {
-      const forSide = ctx.forSide || st.turn.active;
-      const box = el("div", { class: "muted" }, "Loading applicable scoring…");
-      b.append(el("h3", {}, "Scoring now for " + E.SIDE_LABEL[forSide]), box);
-      try {
-        const r = await mcp("get_applicable_scoring", { game_id: cloudGameId, side: forSide, phase: ctx.phase || st.turn.phase, battle_round: ctx.round || st.turn.round, scope: "current_phase", active_turn: "self" });
-        box.replaceChildren(...(r.missions.length ? r.missions.flatMap((m) => [el("div", {}, el("b", {}, m.name + " "), el("span", { class: "muted" }, m.type + (m.mode ? " " + m.mode : ""))), ...m.conditions.map((c) => el("div", {}, "• " + (c.vp ? c.vp + " VP " : "") + (c.condition || c.per || JSON.stringify(c)) + (c.max ? " (max " + c.max + ")" : "")))]) : [el("div", {}, "Nothing to score in this phase.")]),
-          r.missing.length ? el("div", { class: "muted" }, "No scoring data for: " + r.missing.map((m) => m.name).join(", ")) : "");
-      } catch (e) { box.textContent = "Scoring lookup failed: " + e.message; }
+    b.append(el("h3", {}, "Secondary", el("span", { class: "tot" }, sc.secondary + "/" + E.CAPS.secondary)));
+    for (const [k, card] of (sc.secondaries || []).entries()) {
+      const m = missionData?.secondary.find((x) => x.mission_name === card.name);
+      const list = conds(m).map((c, i) => [c, i]).filter(([c]) => !c.mode || c.mode === card.mode);
+      b.append(el("div", { class: "card" + (card.done ? " done" : "") },
+        el("div", { class: "cardh" }, el("b", {}, card.name), el("small", { class: "muted" }, " " + card.mode), el("span", { style: "margin-left:auto" }, "R" + round + ": " + subtotal("secondary", card.name) + " VP"),
+          card.mode === "tactical" ? btn(card.done ? "Done ✓" : "Done?", () => { card.done = !card.done; commitSoon(); rebuild(); }) : "",
+          btn("×", () => { sc.secondaries.splice(k, 1); commitSoon(); rebuild(); })),
+        list.length ? list.map(([c, i]) => rowFor("secondary", card.name, c, i)) : el("p", { class: "muted" }, m ? "No scoring data for this mode." : "Card not in catalog.")));
+    }
+    b.append(btn("+ Add secondary", () => pickSecondary(side, () => openObjectives({ side, round }))));
+    b.append(el("h3", {}, "Other"));
+    const adj = (kind) => sc.sheet?.[round]?.[(kind === "primary" ? "P|" : "S|") + "Adjustment|0"]?.n || 0;
+    const setAdj = (kind, n) => { E.setCondition(st, side, round, { kind, mission: "Adjustment", index: 0, vp: 1, n }); commitSoon(); rebuild(); };
+    for (const kind of ["primary", "secondary"]) b.append(el("div", { class: "cond" }, el("span", { class: "vp" }, ""), el("span", { class: "txt" }, "Manual " + kind + " adjustment (R" + round + ")"),
+      el("span", { class: "ctr" }, btn("−", () => setAdj(kind, adj(kind) - 1), { disabled: !adj(kind) }), el("b", {}, adj(kind)), btn("+", () => setAdj(kind, adj(kind) + 1)))));
+    b.append(el("div", { class: "cond" }, el("span", { class: "vp" }, ""), el("span", { class: "txt" }, "Command points"),
+      el("span", { class: "ctr" }, btn("−", () => { E.addVP(st, side, "cp", -1, "spent"); commitSoon(); rebuild(); }, { disabled: !sc.cp }), el("b", {}, sc.cp), btn("+", () => { E.addVP(st, side, "cp", 1, "gained"); commitSoon(); rebuild(); }))));
+    const pb = el("input", { type: "checkbox" }); pb.checked = !!sc.painted; pb.onchange = () => { E.setPainted(st, side, pb.checked); commitSoon(); rebuild(); };
+    b.append(el("div", { class: "cond" }, el("span", { class: "vp" }, "10 VP"), el("span", { class: "txt" }, "Painted battle-ready"), pb));
+    b.append(el("div", { class: "totals" }, "Primary " + sc.primary + "/45 · Secondary " + sc.secondary + "/45 · Painted " + (sc.painted ? 10 : 0) + "/10 · ", el("b", {}, E.vpTotal(sc) + " VP"), " ", btn("Round summary", () => openSummary())));
+  });
+}
+
+function openSummary() {
+  fullSheet("Score summary", (b) => {
+    const st = gs(), rnow = st.turn.round;
+    b.append(el("p", { class: "muted" }, "Columns are battle rounds. Tap a round to edit it."));
+    for (const side of E.SIDES) {
+      const sm = E.scoreSummary(st, side);
+      const head = el("tr", {}, el("th", {}, ""), [1, 2, 3, 4, 5].map((r) => el("th", { class: "r" + (r === rnow ? " now" : ""), onclick: () => openObjectives({ side, round: r }) }, "R" + r)));
+      const cell = (v, r) => el("td", { class: "r" + (r + 1 === rnow ? " now" : "") + (r % 2 ? "" : " alt"), onclick: () => openObjectives({ side, round: r + 1 }) }, v == null ? "-" : v);
+      const group = (kind, label, total, cap) => [el("tr", { class: "grp" }, el("td", { colspan: 6 }, label, el("span", { class: "tot" }, total + "/" + cap))),
+        ...sm.rows.filter((x) => x.kind === kind).map((x) => el("tr", {}, el("td", { class: "lbl" }, x.label), x.cells.map(cell)))];
+      b.append(el("div", { class: "sumcard" },
+        el("div", { class: "sumh", style: "border-color:" + SIDE_COLOR[side] }, el("b", {}, E.SIDE_LABEL[side]), el("span", { class: "vpb", style: "background:" + SIDE_COLOR[side] }, sm.total + "VP")),
+        el("table", { class: "sum" }, head, ...group("primary", "PRIMARY MISSION", sm.primary, sm.caps.primary), ...group("secondary", "SECONDARY MISSIONS", sm.secondary, sm.caps.secondary),
+          el("tr", { class: "cp" }, el("td", { class: "lbl" }, "CP Remaining"), sm.cp.map(cell)),
+          el("tr", { class: "grp" }, el("td", { colspan: 6 }, "PAINTED BATTLE-READY", el("span", { class: "tot" }, sm.painted + "/10"))))));
     }
   });
 }
 
 async function pickSecondary(side, done) {
   let list = [];
-  try { list = await cloudRequest("/rest/v1/mission_secondary_catalog?edition=eq.11&select=mission_name,fixed_available&order=mission_name"); } catch {}
+  try { list = (await loadMissions()).secondary; } catch {}
   sheet("Add secondary — " + E.SIDE_LABEL[side], (b, _r, d) => {
     if (!list.length) b.append(el("p", { class: "muted" }, "Sign in to load the mission catalog."));
-    for (const m of list) b.append(el("div", { class: "btns", style: "margin:3px 0" }, el("span", { style: "flex:1" }, m.mission_name),
-      btn("Tactical", () => { add(m.mission_name, "tactical"); }), m.fixed_available ? btn("Fixed", () => add(m.mission_name, "fixed")) : ""));
-    function add(name, mode) { const st = gs(); st.score[side].secondaries.push({ name, mode, vp: 0, done: false }); commit("score", name + " added"); d.close(); openScore(); }
+    const have = new Set(gs().score[side].secondaries.map((c) => c.name));
+    for (const m of list.filter((x) => !have.has(x.mission_name))) b.append(el("div", { class: "btns", style: "margin:3px 0" }, el("span", { style: "flex:1" }, m.mission_name),
+      btn("Tactical", () => add(m.mission_name, "tactical")), m.fixed_available ? btn("Fixed", () => add(m.mission_name, "fixed")) : ""));
+    function add(name, mode) { gs().score[side].secondaries.push({ name, mode, done: false }); commitSoon(); d.close(); done?.(); }
   });
 }
 
@@ -680,4 +777,4 @@ setInterval(async () => {
 /* ---------- boot ---------- */
 gs();
 render();
-window.battlefieldHud = { E, gs, commit, openScore, sheetFor, loadSheets };
+window.battlefieldHud = { E, gs, commit, openObjectives, openSummary, sheetFor, loadSheets };
