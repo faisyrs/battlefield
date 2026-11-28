@@ -37,6 +37,7 @@ document.head.append(el("style", {}, `
 #hudTurn .ph{color:#ffe080}#hudScore b{font-size:13px}#hudScore .cp{color:#9fb6c3;font-weight:400}
 @media(max-width:640px){#hudTurn,#hudScore{padding:4px 5px;font-size:11px}#unitCard{max-width:72vw}#unitCard .pip{min-width:17px;height:17px;font-size:10px}}
 #hudScore{position:absolute;left:8px;top:40px;z-index:3;background:#14242de0}
+#hudLayers{position:absolute;left:8px;top:72px;z-index:3;background:#14242de0;font:600 12px system-ui;padding:5px 8px;border-radius:6px;border:1px solid #5d7786;color:#eef5f8}
 #phaseBar{flex:0 0 auto;display:flex;gap:4px;align-items:center;padding:4px 6px;background:#16242e;border-top:1px solid #344956;overflow-x:auto;z-index:6}
 #phaseBar button{flex:0 0 auto;padding:7px 9px;font-size:12.5px;white-space:nowrap}
 #phaseBar .next{margin-left:auto;background:#226c89;font-weight:700;position:sticky;right:0;box-shadow:-8px 0 10px #16242e}
@@ -70,7 +71,9 @@ const phaseBar = el("div", { id: "phaseBar", role: "toolbar", "aria-label": "Pha
 $("bottom-bar").before(phaseBar);
 const card = el("div", { id: "unitCard" });
 const toastEl = el("div", { id: "hudToast" });
-$("boardArea").append(card, toastEl, scoreBtn);
+const layersBtn = el("button", { id: "hudLayers", title: "Map layers" }, "Layers");
+$("boardArea").append(card, toastEl, scoreBtn, layersBtn);
+layersBtn.onclick = () => openLayers();
 let toastTimer;
 function toast(t, ms = 3500) { toastEl.textContent = t; toastEl.style.display = "block"; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastEl.style.display = "none"), ms); }
 
@@ -130,60 +133,128 @@ const maxRange = (s) => Math.max(0, ...((s?.ranged || []).map((w) => parseFloat(
 
 /* ---------- overlays ---------- */
 let rings = false, losTarget = null, drawObstacle = null;
-const baseDrawCatalogMap = window.drawCatalogMap;
+/* ---------- layers ---------- */
+const LAYERS = [
+  ["zones", "Deployment zones", true], ["territory", "Territories", false], ["terrain", "Terrain areas", true],
+  ["dense", "Dense / light terrain", true], ["objectives", "Objective control", true], ["markers", "Objective markers", false],
+  ["joins", "Terrain join marks", false], ["obstacles", "Solid / low terrain", true], ["labels", "Unit names", true],
+  ["status", "Wounds & effects", true],
+];
+let layers = {};
+try { layers = JSON.parse(localStorage.getItem("40k-layers") || "{}"); } catch {}
+for (const [k, , d] of LAYERS) layers[k] ??= d;
+const show = (k) => layers[k] !== false;
+const saveLayers = () => { try { localStorage.setItem("40k-layers", JSON.stringify(layers)); } catch {} };
+
+const MAP_STYLE = {
+  attacker_territory: ["territory", "#b94b4b18", "#b94b4b88", 1], defender_territory: ["territory", "#4579b518", "#4579b588", 1],
+  attacker_deployment: ["zones", "#b94b4b40", "#b94b4b", 1.5], defender_deployment: ["zones", "#4579b540", "#4579b5", 1.5],
+  terrain_area: ["terrain", "#8d8d8d40", "#4a4a4a", 2], dense: ["dense", "#43895bcc", "#27633e", 1], light: ["dense", "#d6bd65cc", "#9a8037", 1],
+};
+const pathRings = (rs, Sx) => { ctx.beginPath(); for (const r of rs) { r.forEach(([x, y], i) => (i ? ctx.lineTo(x * Sx, y * Sx) : ctx.moveTo(x * Sx, y * Sx))); ctx.closePath(); } };
 window.drawCatalogMap = function (data) {
-  baseDrawCatalogMap(data);
+  const Sx = 20;
+  ctx.fillStyle = "#d8d7ce"; ctx.fillRect(0, 0, 880, 1200);
+  // light grid, 1" squares, every 6" darker
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 60; i++) { ctx.strokeStyle = i % 6 ? "#c8c7bc" : "#b3b2a6"; ctx.beginPath(); ctx.moveTo(0, i * Sx); ctx.lineTo(880, i * Sx); ctx.stroke(); }
+  for (let i = 0; i <= 44; i++) { ctx.strokeStyle = i % 6 ? "#c8c7bc" : "#b3b2a6"; ctx.beginPath(); ctx.moveTo(i * Sx, 0); ctx.lineTo(i * Sx, 1200); ctx.stroke(); }
   try {
-    const st = gs(), Sx = 20;
-    for (const o of st.obstacles || []) {
-      ctx.beginPath();
-      o.polygon.forEach(([x, y], i) => (i ? ctx.lineTo(x * Sx, y * Sx) : ctx.moveTo(x * Sx, y * Sx)));
-      ctx.closePath();
-      ctx.fillStyle = o.kind === "low" ? "#8a6a3a88" : "#2b2b2bcc";
-      ctx.strokeStyle = o.kind === "low" ? "#d9b06a" : "#000";
-      ctx.lineWidth = 2;
-      ctx.fill(); ctx.stroke();
+    for (const type of Object.keys(MAP_STYLE)) {
+      const [layer, fill, stroke, lw] = MAP_STYLE[type];
+      if (!show(layer)) continue;
+      for (const f of data.features) {
+        if (f.feature_type !== type || (type === "terrain_area" && f.geometry.physical_component)) continue;
+        pathRings(E.rings(f.geometry), Sx);
+        ctx.fillStyle = fill; ctx.fill("evenodd"); ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke();
+      }
     }
-    const objs = objectives(), oc = E.objectiveControl(st, objs);
-    oc.objectives.forEach((o, k) => {
-      const col = o.controller ? SIDE_COLOR[o.controller] : "#ffffff";
-      ctx.fillStyle = o.controller ? col + "33" : "#ffffff14";
-      ctx.strokeStyle = o.controller ? col : "#ffffffb0";
-      ctx.lineWidth = 3; ctx.setLineDash([8, 5]);
-      const rs = objs[k].rings;
-      if (rs) {
-        for (const r of rs) { ctx.beginPath(); r.forEach(([x, y], i) => (i ? ctx.lineTo(x * Sx, y * Sx) : ctx.moveTo(x * Sx, y * Sx))); ctx.closePath(); ctx.fill(); ctx.stroke(); }
-      } else {
-        const r = (E.OBJECTIVE_RANGE + E.OBJECTIVE_MARKER_MM / 25.4 / 2) * Sx;
-        ctx.beginPath(); ctx.arc(o.x * Sx, o.y * Sx, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      }
-      ctx.setLineDash([]);
-      if (o.oc.ork || o.oc.da) {
-        ctx.font = "bold 15px system-ui"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-        const t = "OC " + o.oc.ork + " : " + o.oc.da;
-        ctx.strokeText(t, o.x * Sx, o.y * Sx - 22); ctx.fillText(t, o.x * Sx, o.y * Sx - 22);
-      }
-    });
-  } catch (e) { console.warn("overlay", e); }
+    if (show("joins")) for (const m of data.map.geometry?.terrain_join_markers || []) {
+      if (!m.point) continue;
+      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(m.point[0] * Sx, m.point[1] * Sx, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#222"; ctx.font = "bold 11px system-ui"; ctx.textAlign = "center"; ctx.fillText(m.kind === "separate" ? "×" : "=", m.point[0] * Sx, m.point[1] * Sx + 4);
+    }
+    const st = gs();
+    if (show("obstacles")) for (const o of st.obstacles || []) {
+      pathRings([o.polygon], Sx);
+      ctx.fillStyle = o.kind === "low" ? "#8a6a3a88" : "#2b2b2bcc"; ctx.strokeStyle = o.kind === "low" ? "#d9b06a" : "#000"; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+    }
+    const objs = objectives();
+    if (show("objectives")) {
+      const oc = E.objectiveControl(st, objs);
+      oc.objectives.forEach((o, k) => {
+        const col = o.controller ? SIDE_COLOR[o.controller] : null;
+        const rs = objs[k].rings || [Array.from({ length: 24 }, (_, i) => [o.x + 3.79 * Math.cos(i * Math.PI / 12), o.y + 3.79 * Math.sin(i * Math.PI / 12)])];
+        pathRings(rs, Sx);
+        ctx.fillStyle = col ? col + "38" : "#ffffff00"; ctx.fill("evenodd");
+        ctx.strokeStyle = col || "#ffffffcc"; ctx.lineWidth = 3; ctx.setLineDash([9, 5]); ctx.stroke(); ctx.setLineDash([]);
+        if (o.oc.ork || o.oc.da) {
+          ctx.font = "bold 13px system-ui"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.fillStyle = "#fff";
+          const t = o.oc.ork + " : " + o.oc.da;
+          ctx.strokeText(t, o.x * Sx, o.y * Sx + 5); ctx.fillText(t, o.x * Sx, o.y * Sx + 5);
+        }
+      });
+    }
+    if (show("markers")) for (const o of objs) { ctx.beginPath(); ctx.arc(o.x * Sx, o.y * Sx, 0.787 * Sx, 0, Math.PI * 2); ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.stroke(); }
+  } catch (e) { console.warn("map", e); }
 };
 
-const baseDrawMarker = window.drawMarker;
+function openLayers() {
+  sheet("Map layers", (b, rebuild) => {
+    for (const [k, label] of LAYERS) {
+      const cb = el("input", { type: "checkbox" }); cb.checked = show(k);
+      cb.onchange = () => { layers[k] = cb.checked; saveLayers(); render(); };
+      b.append(el("label", { style: "display:flex;gap:8px;align-items:center;padding:5px 0;font-size:14px" }, cb, label));
+    }
+    b.append(el("div", { class: "btns", style: "margin-top:8px" },
+      btn("Board only", () => { for (const [k] of LAYERS) layers[k] = ["terrain", "dense", "zones"].includes(k); saveLayers(); render(); rebuild(); }),
+      btn("Defaults", () => { for (const [k, , d] of LAYERS) layers[k] = d; saveLayers(); render(); rebuild(); })));
+  });
+}
+
+const FILL = { ork: "#b54b3b", da: "#248f6c" }, DOT = { ork: "#e1a897", da: "#9ad9c5" };
 window.drawMarker = function (u, sel) {
-  baseDrawMarker(u, sel);
+  const Sx = 20;
   try {
-    const Sx = 20;
-    if (u.wounds) for (const m of u.models) {
+    const polys = E.modelPolygons(u);
+    if (!polys.length) return;
+    polys.forEach((poly, i) => {
+      pathRings([poly], Sx);
+      ctx.fillStyle = FILL[u.side] || "#777"; ctx.fill();
+      ctx.strokeStyle = sel ? "#ffdc63" : "#f6f6f6"; ctx.lineWidth = sel ? 2.5 : 1.4; ctx.stroke();
+      const c = E.modelCenter(u, u.models[i]);
+      if (u.vehicle && E.modelDims(u, u.models[i]).shape === "rectangle") {
+        // facing chevron toward the model's front (local -y)
+        const a = ((u.angle || 0) * Math.PI) / 180, h = E.modelDims(u, u.models[i]).h / 2, w = E.modelDims(u, u.models[i]).w / 2;
+        const P = (lx, ly) => [(c.x + lx * Math.cos(a) - ly * Math.sin(a)) * Sx, (c.y + lx * Math.sin(a) + ly * Math.cos(a)) * Sx];
+        ctx.beginPath(); ctx.moveTo(...P(-w * 0.45, -h * 0.4)); ctx.lineTo(...P(0, -h * 0.75)); ctx.lineTo(...P(w * 0.45, -h * 0.4)); ctx.stroke();
+      } else {
+        const r = Math.max(1.5, (E.modelDims(u, u.models[i]).w / 2) * Sx * 0.27);
+        ctx.beginPath(); ctx.arc(c.x * Sx, c.y * Sx, r, 0, Math.PI * 2); ctx.fillStyle = DOT[u.side] || "#ccc"; ctx.fill();
+      }
+    });
+    if (show("status") && u.wounds) for (const m of u.models) {
       if (m.wounds == null || m.wounds >= u.wounds) continue;
       const p = E.modelCenter(u, m);
       ctx.beginPath(); ctx.arc(p.x * Sx, p.y * Sx, 7, 0, Math.PI * 2); ctx.fillStyle = "#d33"; ctx.fill();
       ctx.font = "bold 10px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(m.wounds), p.x * Sx, p.y * Sx + 0.5); ctx.textBaseline = "alphabetic";
     }
-    if (u.effects?.length) {
-      const p = E.modelCenter(u, u.models[0] || { x: 0, y: 0 });
-      ctx.font = "bold 11px system-ui"; ctx.textAlign = "left"; ctx.fillStyle = "#ffe080"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-      const t = u.effects.map((e) => e.label.split(/[ /]/)[0]).join("·");
-      ctx.strokeText(t, p.x * Sx + 10, p.y * Sx + 18); ctx.fillText(t, p.x * Sx + 10, p.y * Sx + 18);
-    }
+    // Label: centred above the actual footprint of the models.
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const poly of polys) for (const [x, y] of poly) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const cx = ((x0 + x1) / 2) * Sx;
+    const lines = [];
+    if (show("labels") || sel) lines.push([u.name.length > 24 ? u.name.slice(0, 22) + "…" : u.name, "#fff", "bold 13px system-ui"]);
+    if (show("status") && u.effects?.length) lines.push([u.effects.map((e) => e.label.split(/[ /]/)[0]).join(" · "), "#ffe080", "bold 11px system-ui"]);
+    let ty = y0 * Sx - 5;
+    ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#101820";
+    // Nudge the label block up until it clears labels already drawn this frame.
+    const widths = lines.map(([t, , font]) => { ctx.font = font; return ctx.measureText(t).width; });
+    const w = Math.max(0, ...widths) + 4, h = lines.length * 13;
+    const hit = (y) => labelBoxes.some((r) => Math.abs(r.x - cx) * 2 < r.w + w && y - h < r.y && y > r.y - r.h);
+    for (let k = 0; k < 6 && lines.length && hit(ty); k++) ty -= 13;
+    if (lines.length) labelBoxes.push({ x: cx, y: ty, w, h });
+    for (const [t, col, font] of lines.reverse()) { ctx.font = font; ctx.fillStyle = col; ctx.strokeText(t, cx, ty); ctx.fillText(t, cx, ty); ty -= 13; }
   } catch (e) { console.warn("marker", e); }
 };
 
@@ -224,8 +295,9 @@ window.drawPendingProposals = function () {
   } catch (e) { console.warn("overlay2", e); }
 };
 
+let labelBoxes = [];
 const baseRender = window.render;
-window.render = function () { baseRender(); try { updateHud(); } catch (e) { console.warn("hud", e); } };
+window.render = function () { labelBoxes = []; baseRender(); try { updateHud(); } catch (e) { console.warn("hud", e); } };
 
 const baseLoad = window.cloudLoadState;
 let gameMapId = null;
@@ -581,13 +653,15 @@ setInterval(() => { if (!online()) return; if (rtGame !== cloudGameId) { chat = 
 /* ---------- sign-in / map status ---------- */
 const banner = el("div", { id: "hudBanner", style: "position:absolute;left:50%;bottom:52px;transform:translateX(-50%);z-index:3;background:#3b2a12f0;border:1px solid #d9a441;border-radius:8px;padding:6px 10px;font-size:13px;display:none;max-width:92%" });
 $("boardArea").append(banner);
+let bannerHidden = "";
 function updateBanner() {
   let text = "", action = null;
   if (!cloudSession) { text = "Not signed in — showing the offline sample board. Sign in to load your saved game and its map."; action = ["Sign in", () => { $("barMenu").click(); $("cloudEmail")?.scrollIntoView({ block: "center" }); $("cloudEmail")?.focus(); }]; }
   else if (cloudRevision === null) { text = "Signed in. Load a game to see its map."; action = ["Games", () => $("barGames").click()]; }
   else if (!activeCatalogMap && gameMapId) { text = "This game's map didn't load."; action = ["Retry", async () => { try { activeCatalogMap = await fetchCatalogMap(gameMapId); render(); } catch (e) { toast("Map load failed: " + e.message); } }]; }
+  if (text && text === bannerHidden) text = "";
   banner.style.display = text ? "block" : "none";
-  if (text) banner.replaceChildren(text, " ", action ? btn(action[0], action[1]) : "");
+  if (text) { const t = text; banner.replaceChildren(text, " ", action ? btn(action[0], action[1]) : "", " ", btn("×", () => { bannerHidden = t; updateBanner(); })); }
 }
 setInterval(updateBanner, 1500);
 
