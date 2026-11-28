@@ -1,1 +1,9 @@
-{ "name": "battlefield", "private": true, "type": "module", "scripts": { "test": "node --test test/*.test.js" } }
+{
+  "name": "battlefield",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:mcp": "cp js/engine.js supabase/functions/battlefield-mcp/engine.js && esbuild supabase/functions/battlefield-mcp/index.ts --bundle --format=esm --platform=neutral --external:jsr:* --outfile=/tmp/mcp.js && sed -i '/^import \"jsr:/d' /tmp/mcp.js",
+    "test": "npm run build:mcp && node --test test/*.test.js"
+  }
+}
