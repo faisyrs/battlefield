@@ -1,36 +1,31 @@
-# Battlefield MCP endpoint
+# Battlefield MCP
 
-Deployed Supabase Edge Function:
+Connector URL (OAuth, works with Claude and ChatGPT): `https://40k-battlefield-table.netlify.app/mcp`
 
-`https://mvkqwisscspojgsgddgj.supabase.co/functions/v1/battlefield-mcp`
+Source: `supabase/functions/battlefield-mcp/` (deployed as Supabase Edge Function `battlefield-mcp`).
+The shared rules-light engine lives in `js/engine.js` and is copied next to the function before deploy
+(`npm run build:mcp` does this and bundles for the Node test harness).
 
-## Protocol
+## Playing against an AI opponent
 
-Stateless JSON-RPC 2.0 over HTTP POST, MCP protocol version `2025-03-26`. Supported methods: `initialize`, `ping`, `tools/list`, and `tools/call`. Tools: `list_games`, `get_battlefield`, `get_unit`, `propose_move`, and `commit_move`.
+1. `get_turn_brief(game_id, side)` — one compact call per phase: turn, VP/CP, both armies, objective control, threats, pending proposals.
+2. Look up only what you need: `find_targets`, `measure`, `check_visibility`, `objective_control`, `get_datasheet`, `get_applicable_scoring`.
+3. Stage everything for the phase in one `propose_changes` call (move, advance, charge, pile_in, location, deploy, damage, remove_models, destroy, effect, score, phase, set).
+   Each change is validated in order (allowance, overlaps, terrain, coherency, 3″/8″/6″ placement rules). Hard errors reject the batch; warnings are returned.
+4. The player approves or rejects in the app (top-bar Approve/Reject). `get_events_since(game_id, since_revision, wait_seconds=25)` long-polls so the AI sees
+   approvals, the player's moves, casualties, phase changes and chat without being told.
+5. `send_message` posts to the table chat.
 
-All POST requests require `Authorization: Bearer <Supabase user access JWT>`. Supabase Edge Functions validates the JWT, and RLS restricts game access to the authenticated owner. Do not use the public publishable key as a user bearer token.
+`commit_move` remains for explicit approval in chat. All writes go through RLS as the signed-in player.
 
-The `propose_move` tool stages a proposed state change, leaving the saved game unchanged. The `commit_move` tool requires `approved: true` and uses optimistic revision checking. **The endpoint does not validate Warhammer movement rules or model collision.** A client must present proposals for player approval before committing.
+## Other tools
+`list_games`, `get_battlefield` (full state, large), `get_unit`, `propose_move`, `propose_location`, `propose_deployment`, `create_game`,
+`list_maps`, `get_map`, `get_mission_reference`, `get_mission_matchup`, `get_mission_rules`, `list_secondary_missions`, `search_datasheets`, `check_coherency`.
 
-## ChatGPT integration status
+## State model (v2)
+Stored in `tabletop_games.state` (JSON). Added by `upgradeState`: `turn {round, active, first, phase}`, `score {ork|da: {primary, secondary, cp, secondaries, history}}`,
+`log`, `obstacles` (solid/low terrain polygons). Units gain `wounds` (W per model), per-model `wounds`, `casualties`, `effects` (with expiry),
+`locationState: destroyed`, `datasheet`, `keywords`, `oc`, `loadout`.
 
-The function is deployed, but it has **not** been connected to ChatGPT as a remote MCP connector. Standard ChatGPT MCP connector setup generally requires an OAuth-compatible authorization flow; this endpoint currently accepts Supabase user access JWTs and does not implement OAuth discovery or dynamic client registration. Do not paste session tokens into chat. A secure OAuth bridge is needed for a supported ChatGPT connector.
-
-## Testing
-
-Deployment and function presence were verified. An authenticated end-to-end tool call, unauthorized-access rejection, proposal commit and revision-conflict tests are still pending.
-
-## OAuth bridge (2026-11-26)
-
-OAuth bridge deployed as Supabase Edge Function `battlefield-oauth` with Netlify reverse-proxy paths:
-
-- MCP URL: `https://40k-battlefield-table.netlify.app/mcp`
-- OAuth metadata: `https://40k-battlefield-table.netlify.app/.well-known/oauth-authorization-server`
-- Resource metadata: `https://40k-battlefield-table.netlify.app/.well-known/oauth-protected-resource/mcp`
-- OAuth authorization, token, registration: `/oauth/authorize`, `/oauth/token`, `/oauth/register`
-
-Authorization-code flow uses PKCE S256 and dynamic public-client registration. A consent page uses Supabase email magic-link sign-in. The authorization code is short-lived and consumed atomically. The bridge issues opaque bearer and refresh tokens, storing only token hashes for lookup. Supabase user access/refresh tokens are held in a non-exposed private database schema, accessible only through a service-role-only RPC. The MCP proxy resolves the opaque bearer token and calls the existing Supabase-JWT-protected MCP function.
-
-**Verification status:** Edge Function deployment, database migration, Netlify config commit, and Netlify deploy state were checked. The full browser OAuth round trip and a ChatGPT MCP tool invocation have not been tested yet. No user credentials should be pasted into chat.
-
-**Known limitations:** No explicit revocation UI or automatic cleanup job yet. Client registration accepts HTTPS redirect URIs; consent should be reviewed carefully. OAuth login links must be allowed by Supabase Auth redirect configuration. Movement proposals are not checked against Warhammer game rules.
+## Tests
+`npm test` — engine unit tests and an MCP handler harness with a stubbed database.

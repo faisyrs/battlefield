@@ -304,6 +304,11 @@ function updateCard() {
   const head = el("h3", {}, el("span", { style: "color:" + SIDE_COLOR[u.side] }, "●"), u.name, el("small", { style: "margin-left:auto;color:#9fb6c3" }, alive + "/" + (alive + lost)), btn(cardMin ? "▸" : "▾", () => { cardMin = !cardMin; updateCard(); }));
   const body = el("div", { class: "body" });
   if (p) body.append(el("div", { class: "stats" }, ["M", "T", "Sv", "W", "Ld", "OC"].map((k) => k + " " + (p[k] ?? "–")).join(" · ") + (p.invuln ? " · " + p.invuln + "++" : "")));
+  if (E.isOnTable(u) && gs().obstacles?.length && u.origin) {
+    const issues = E.terrainMoveIssues(terrain(), { ...u, x: u.origin.x, y: u.origin.y, angle: u.origin.angle, models: u.models }, u.x, u.y, u.angle);
+    if (issues.length) head.append(el("span", { title: issues.join("; "), style: "color:#ff8a65" }, "⚠"));
+    if (issues.length) body.append(el("div", { style: "color:#ff8a65" }, issues.join("; ")));
+  }
   if (u.locationState !== "deployed") body.append(el("div", { class: "stats" }, "Status: " + u.locationState + (u.needsEmergencyDisembark ? " · emergency disembark!" : "")));
   if (u.wounds && alive <= 20) body.append(el("div", { class: "row" }, u.models.map((m, i) => el("span", { class: "pip" + (m.wounds < u.wounds ? " hurt" : ""), title: "Model " + (i + 1) + ": tap to deal 1 damage", onclick: () => hurt(u, 1, i) }, m.wounds ?? u.wounds))));
   const W = el("input", { type: "number", min: 1, max: 30, value: u.wounds ?? "", style: "width:46px;padding:3px", title: "Wounds per model" });
