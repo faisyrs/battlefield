@@ -144,19 +144,26 @@ window.drawCatalogMap = function (data) {
       ctx.lineWidth = 2;
       ctx.fill(); ctx.stroke();
     }
-    const oc = E.objectiveControl(st, objectives());
-    for (const o of oc.objectives) {
-      const r = (E.OBJECTIVE_RANGE + E.OBJECTIVE_MARKER_MM / 25.4 / 2) * Sx;
-      ctx.beginPath(); ctx.arc(o.x * Sx, o.y * Sx, r, 0, Math.PI * 2);
-      ctx.fillStyle = o.controller ? SIDE_COLOR[o.controller] + "33" : "#ffffff10";
-      ctx.strokeStyle = o.controller ? SIDE_COLOR[o.controller] : "#ffffff70";
-      ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+    const objs = objectives(), oc = E.objectiveControl(st, objs);
+    oc.objectives.forEach((o, k) => {
+      const col = o.controller ? SIDE_COLOR[o.controller] : "#ffffff";
+      ctx.fillStyle = o.controller ? col + "33" : "#ffffff14";
+      ctx.strokeStyle = o.controller ? col : "#ffffffb0";
+      ctx.lineWidth = 3; ctx.setLineDash([8, 5]);
+      const rs = objs[k].rings;
+      if (rs) {
+        for (const r of rs) { ctx.beginPath(); r.forEach(([x, y], i) => (i ? ctx.lineTo(x * Sx, y * Sx) : ctx.moveTo(x * Sx, y * Sx))); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      } else {
+        const r = (E.OBJECTIVE_RANGE + E.OBJECTIVE_MARKER_MM / 25.4 / 2) * Sx;
+        ctx.beginPath(); ctx.arc(o.x * Sx, o.y * Sx, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.setLineDash([]);
       if (o.oc.ork || o.oc.da) {
         ctx.font = "bold 15px system-ui"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-        const t = o.oc.ork + " : " + o.oc.da;
-        ctx.strokeText(t, o.x * Sx, o.y * Sx - r - 4); ctx.fillText(t, o.x * Sx, o.y * Sx - r - 4);
+        const t = "OC " + o.oc.ork + " : " + o.oc.da;
+        ctx.strokeText(t, o.x * Sx, o.y * Sx - 22); ctx.fillText(t, o.x * Sx, o.y * Sx - 22);
       }
-    }
+    });
   } catch (e) { console.warn("overlay", e); }
 };
 

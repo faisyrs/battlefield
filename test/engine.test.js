@@ -122,10 +122,27 @@ test("distances are edge to edge and range counts models", () => {
   assert.equal(E.modelsInRange(a, b, 8).count, 0);
 });
 
-test("objective control sums OC within 3″ + marker radius, battle-shock zeroes OC", () => {
+test("11th: objective control uses the terrain area footprint; any overlap counts", () => {
+  const area = { feature_id: "a1", feature_type: "terrain_area", geometry: { type: "MultiPolygon", coordinates: [[[[10, 10], [16, 10], [16, 14], [10, 14], [10, 10]]], [[[17, 10], [20, 10], [20, 14], [17, 14], [17, 10]]]] } };
+  const marker = { feature_id: "o1", feature_type: "central_objective", geometry: { type: "Point", coordinates: [13, 12] } };
+  const objs = E.objectivesFromFeatures([area, marker]);
+  assert.equal(objs[0].area, "a1");
+  const touching = inf(1, "ork", 9.5, 12, 1);            // base edge overlaps the area's left side
+  const outside = inf(2, "da", 8, 12, 1);                 // clear of the area
+  const onOtherMember = inf(3, "da", 18.5, 12, 1);        // on the second footprint of the same area
+  const far = inf(4, "da", 13, 20, 1, { vehicle: true, diam: 3, models: [{ x: 0, y: 0 }], oc: 5 });
+  const s = game([touching, outside, onOtherMember, far]);
+  const r = E.objectiveControl(s, objs).objectives[0];
+  assert.equal(r.method, "terrain area");
+  assert.equal(r.oc.ork, 1);
+  assert.equal(r.oc.da, 1);
+  assert.equal(r.controller, null);
+});
+
+test("objective fallback: 3″ + marker radius when no area holds the marker", () => {
   const a = inf(1, "ork", 10, 10, 3), b = inf(2, "da", 14.5, 10, 1);
   const s = game([a, b]);
-  const objs = [{ id: "o1", kind: "central", x: 12, y: 10 }];
+  const objs = [{ id: "o1", kind: "central", x: 12, y: 10, rings: null }];
   let r = E.objectiveControl(s, objs);
   assert.equal(r.objectives[0].oc.ork, 3);
   assert.equal(r.objectives[0].oc.da, 1);
@@ -166,6 +183,10 @@ test("visibility: ruin footprint between units blocks; standing inside does not"
   const v = E.unitVisibility(ctx, a, b);
   assert.equal(v.targetModelsVisible, 1);
   assert.ok(v.targetInCover);
+  b.x = 22.4; // base only overlapping the ruin edge still counts as in cover
+  assert.ok(E.unitVisibility(ctx, a, b).targetInCover);
+  const tank = inf(5, "da", 20, 10, 1, { vehicle: true, diam: 2, models: [{ x: 0, y: 0 }], keywords: ["VEHICLE"] });
+  assert.equal(E.unitVisibility(ctx, a, tank).targetInCover, false, "vehicles do not get area cover");
   const clear = inf(3, "da", 30, 30, 1);
   assert.equal(E.unitVisibility(ctx, a, clear).targetModelsVisible, 1);
 });

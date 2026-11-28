@@ -7,7 +7,7 @@ export const PHASES = ["command", "movement", "shooting", "charge", "fight"];
 export const PHASE_LABEL = { command: "Command", movement: "Movement", shooting: "Shooting", charge: "Charge", fight: "Fight" };
 export const SIDES = ["ork", "da"];
 export const SIDE_LABEL = { ork: "Orks", da: "Dark Angels" };
-export const OBJECTIVE_RANGE = 3; // inches, measured from the marker edge
+export const OBJECTIVE_RANGE = 3; // fallback only: inches from the marker edge when no terrain area holds the marker
 export const OBJECTIVE_MARKER_MM = 40;
 export const PILE_IN = 3;
 export const EPS = 0.005;
@@ -538,7 +538,8 @@ export function modelVisibility(ctx, a, b, opts = {}) {
     }
     if (!blocked) clear++;
   }
-  const cover = ctx.light.some((r) => inside(r, b)) || ctx.ruins.some((r) => inside(r, b));
+  // Cover (11th): a model whose footprint overlaps a terrain area is in it. Callers decide eligibility (infantry/swarm).
+  const cover = [...ctx.light, ...ctx.ruins].some((r) => polyDistance(b, r) < EPS);
   const dense = ctx.dense.some((r) => inside(r, b));
   return { visible: clear > 0, fully: clear === total, fraction: round2(clear / total), cover, dense, blockers: [...blockers] };
 }
@@ -553,7 +554,9 @@ function sample(poly) {
 /** Visibility + range summary of attacker unit vs target unit. */
 export function unitVisibility(ctx, attacker, target, opts = {}) {
   const pa = modelPolygons(attacker), pt = modelPolygons(target);
-  const towering = unitKeywords(attacker).includes("TOWERING") || unitKeywords(target).includes("TOWERING");
+  const tk = unitKeywords(target);
+  const towering = unitKeywords(attacker).includes("TOWERING") || tk.includes("TOWERING");
+  const coverEligible = tk.length ? tk.includes("INFANTRY") || tk.includes("SWARM") : !target.vehicle;
   const visibleModels = [], range = opts.range;
   let anyCover = false, allDense = pt.length > 0;
   pa.forEach((poly, i) => {
@@ -563,7 +566,7 @@ export function unitVisibility(ctx, attacker, target, opts = {}) {
       const d = polyDistance(poly, q);
       if (v.visible && (range == null || d <= range + EPS)) seen++;
       if (v.visible) near = Math.min(near, d);
-      if (v.cover) anyCover = true;
+      if (v.cover && coverEligible) anyCover = true;
       if (!v.dense) allDense = false;
     });
     visibleModels.push({ model: i, seesTargets: seen, nearestVisible: near === Infinity ? null : round2(near) });
@@ -582,11 +585,30 @@ export function unitVisibility(ctx, attacker, target, opts = {}) {
 
 /* ---------- objectives ---------- */
 
+/**
+ * 11th edition: an objective is the terrain area whose footprint holds the marker.
+ * Each objective gets the rings of that area (MultiPolygon members); if no area
+ * contains the marker, it falls back to a 3″ radius around the marker.
+ */
 export function objectivesFromFeatures(features = []) {
+  const areas = features.filter((f) => f.feature_type === "terrain_area").map((f) => ({ id: f.feature_id, rings: rings(f.geometry) }));
   return features
     .filter((f) => /objective$/.test(f.feature_type) && f.geometry?.type === "Point")
-    .map((f, i) => ({ id: f.feature_id || f.feature_type + "-" + i, kind: f.feature_type.replace("_objective", ""), side: f.geometry.side || null, x: f.geometry.coordinates[0], y: f.geometry.coordinates[1] }));
+    .map((f, i) => {
+      const p = f.geometry.coordinates;
+      let area = areas.find((a) => a.rings.some((r) => insidePoly(p, r)));
+      if (!area) {
+        // Marker drawn just outside an outline: take the closest area within 1″.
+        let best = null, bd = 1;
+        for (const a of areas) for (const r of a.rings) { const d = pointPoly(p, r); if (d < bd) { bd = d; best = a; } }
+        area = best;
+      }
+      return { id: f.feature_id || f.feature_type + "-" + i, kind: f.feature_type.replace("_objective", ""), side: f.geometry.side || null, x: p[0], y: p[1], area: area?.id || null, rings: area?.rings || null };
+    });
 }
+
+/** Does a model footprint overlap (touch) any ring? */
+export const overlapsAny = (poly, ringsList) => (ringsList || []).some((r) => polyDistance(poly, r) < EPS);
 
 export function unitOC(u, opts = {}) {
   if (hasEffect(u, "Battle-shocked")) return 0;
@@ -597,7 +619,7 @@ export function unitOC(u, opts = {}) {
   return u.vehicle ? 2 : 1;
 }
 
-/** Objective control: sums OC of models whose footprint is within range of the marker. */
+/** Objective control: sums OC of models whose footprint overlaps the objective's terrain area (any overlap counts). */
 export function objectiveControl(state, objectives, opts = {}) {
   const reach = (opts.range ?? OBJECTIVE_RANGE) + OBJECTIVE_MARKER_MM / 25.4 / 2;
   const prev = state.objectiveHolds || {};
@@ -606,13 +628,13 @@ export function objectiveControl(state, objectives, opts = {}) {
     for (const u of state.units) {
       if (!isOnTable(u)) continue;
       const per = unitOC(u, opts);
-      const n = modelPolygons(u).filter((poly) => pointPoly([o.x, o.y], poly) <= reach + EPS).length;
+      const n = modelPolygons(u).filter((poly) => (o.rings ? overlapsAny(poly, o.rings) : pointPoly([o.x, o.y], poly) <= reach + EPS)).length;
       if (n) { oc[u.side] += n * per; contributors.push({ unit: u.name, side: u.side, models: n, oc: n * per }); }
     }
     let controller = oc.ork > oc.da ? "ork" : oc.da > oc.ork ? "da" : null;
     // Sticky control (e.g. "remains under your control") can be set by marking the objective.
     if (!controller && prev[o.id]?.sticky && oc.ork === 0 && oc.da === 0) controller = prev[o.id].side;
-    return { id: o.id, kind: o.kind, x: round2(o.x), y: round2(o.y), oc, controller, contributors };
+    return { id: o.id, kind: o.kind, x: round2(o.x), y: round2(o.y), area: o.area ?? null, method: o.rings ? "terrain area" : "3in radius (no area found)", oc, controller, contributors };
   });
   return { objectives: result, held: { ork: result.filter((r) => r.controller === "ork").length, da: result.filter((r) => r.controller === "da").length } };
 }
