@@ -116,8 +116,15 @@ Deno.serve(async (req) => {
     const g = rows[0];
     g.state.board ??= { width: Number(g.board_width), height: Number(g.board_height) };
     E.upgradeState(g.state);
+    // Fill W/OC/keywords from datasheets so damage and objective control are right even before the app has done it.
+    if (g.state.units.some((u: any) => u.wounds == null)) {
+      const sheets = await allSheets();
+      for (const u of g.state.units) E.applyDatasheet(u, E.matchDatasheet(u, sheets));
+    }
     return g;
   };
+  let sheetRows: any[] | null = null;
+  const allSheets = async () => sheetRows ??= await api("datasheets?edition=eq.11&select=faction,slug,name,profiles,keywords&limit=1000").catch(() => []);
   const unitOf = (state: any, ref: any) => { const u = E.findUnit(state, ref); if (!u) throw Error("Unit not found: " + ref); return u; };
   const sheetCache = new Map<string, any>();
   const datasheetFor = async (u: any) => {
@@ -218,7 +225,7 @@ Deno.serve(async (req) => {
         case "restore": if (!u) fail("unit required"); E.restoreUnit(state, u); applied.push({ op: "restore", unit: u.name }); break;
         case "effect": if (!u) fail("unit required"); if (!c.label) fail("label required"); if (c.remove) E.removeEffect(state, u, c.label); else E.addEffect(state, u, { label: c.label, expires: c.expires, mods: c.mods, note: c.reason }); applied.push({ op: "effect", unit: u.name, label: c.label, removed: !!c.remove }); break;
         case "score": applied.push({ op: "score", ...E.addVP(state, c.side, c.kind || "primary", c.delta, c.reason) }); break;
-        case "phase": { if (c.to === "next" || (!c.to && !c.phase && c.round == null)) { const r = E.advancePhase(state); applied.push({ op: "phase", to: r.to, prompts: r.prompts }); } else { E.setPhase(state, { round: c.round, active: c.active, phase: c.to || c.phase }); applied.push({ op: "phase", to: state.turn }); } break; }
+        case "phase": { if (c.to === "next" || (!c.to && !c.phase && c.round == null)) { const r = E.advancePhase(state); applied.push({ op: "phase", to: r.to, prompts: r.prompts }); } else { E.setPhase(state, { round: c.round, active: c.active, phase: c.to || c.phase }); applied.push({ op: "phase", to: { ...state.turn } }); } break; }
         case "set": {
           if (!u) fail("unit required");
           const f = c.fields || {};
@@ -316,7 +323,7 @@ Deno.serve(async (req) => {
           const d = E.unitDistance(u, v);
           if (a.max_distance && d > a.max_distance) return null;
           const vis = E.unitVisibility(ctx, u, v);
-          return { id: v.id, name: v.name, distance: E.round2(d), visibleModels: vis.targetModelsVisible + "/" + vis.targetModelsTotal, cover: vis.targetInCover || undefined, inRange: weapons.filter((w: any) => d <= w.range + E.EPS).map((w: any) => w.name), chargeable: d <= 12 || undefined };
+          return { id: v.id, name: v.name, distance: E.round2(d), visibleModels: vis.targetModelsVisible + "/" + vis.targetModelsTotal, cover: vis.targetInCover || undefined, inRange: vis.targetModelsVisible ? weapons.filter((w: any) => d <= w.range + E.EPS).map((w: any) => w.name) : [], notVisible: !vis.targetModelsVisible || undefined, chargeable: d <= 12 || undefined };
         }).filter(Boolean).sort((x: any, y: any) => x.distance - y.distance);
         return reply(result({ unit: u.name, datasheet: ds?.name || null, weapons, melee: (ds?.melee || []).map((w: any) => w.name), targets: out }));
       }

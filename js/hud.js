@@ -124,25 +124,8 @@ async function loadSheets() {
   if (clean) proposalBaseline = JSON.stringify(cloudState());
   return sheets;
 }
-const baseName = (n) => String(n || "").replace(/^(left|right|center|centre)\s+/i, "").replace(/\s*(—.*|×\s*\d+|x\s*\d+|\d+)$/i, "").replace(/^\d+\s+/, "").trim().toLowerCase();
-const ALIASES = { ghaz: "ghazghkull thraka", dakkarig: "big mek dakkarig", lion: "lion el’jonson", vengeance: "land speeder vengeance", incursors: "incursor squad", "sammael ravenwing": "sammael", "chaplain ravenwing": "chaplain on bike", "ravenwing chaplain": "chaplain on bike", "lion el’jonson": "lion el’jonson" };
-function sheetFor(u) {
-  if (!sheets?.length || !u) return null;
-  if (u.datasheet) { const s = sheets.find((x) => x.slug === u.datasheet || x.name === u.datasheet); if (s) return s; }
-  let n = baseName(u.name); n = ALIASES[n] || n;
-  return sheets.find((s) => s.name.toLowerCase() === n) || sheets.find((s) => s.name.toLowerCase().replace(/[’']/g, "") === n.replace(/[’']/g, "")) || sheets.find((s) => n.length > 3 && s.name.toLowerCase().startsWith(n)) || null;
-}
-function applySheets() {
-  for (const u of units) {
-    const s = sheetFor(u);
-    if (!s) continue;
-    u.datasheet ??= s.slug;
-    const p = s.profiles?.[0];
-    if (p && u.wounds == null && Number(p.W)) { u.wounds = Number(p.W); u.models.forEach((m) => (m.wounds ??= u.wounds)); }
-    if (p && u.oc == null && p.OC != null && !isNaN(Number(p.OC))) u.oc = Number(p.OC);
-    if (!u.keywords?.length && s.keywords?.length) u.keywords = s.keywords;
-  }
-}
+const sheetFor = (u) => E.matchDatasheet(u, sheets);
+function applySheets() { for (const u of units) E.applyDatasheet(u, sheetFor(u)); }
 const maxRange = (s) => Math.max(0, ...((s?.ranged || []).map((w) => parseFloat(String(w.range).replace(/[^0-9.]/g, "")) || 0)));
 
 /* ---------- overlays ---------- */

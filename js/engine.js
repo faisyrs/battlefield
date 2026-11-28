@@ -301,6 +301,7 @@ export function restoreUnit(state, u) {
   u.modelCount = u.models.length;
   u.locationState = u.destroyedFrom || "deployed";
   delete u.destroyedRound;
+  for (const v of state.units) if (String(v.transportId) === String(u.id)) delete v.needsEmergencyDisembark;
   resetOrigin(u);
   log(state, { kind: "restored", unit: u.id, name: u.name });
   return u;
@@ -721,6 +722,32 @@ export function placementError(state, u, p, rule) {
   return null;
 }
 
+/* ---------- datasheet matching ---------- */
+
+export const DATASHEET_ALIASES = { ghaz: "ghazghkull thraka", dakkarig: "big mek dakkarig", lion: "lion el’jonson", vengeance: "land speeder vengeance", incursors: "incursor squad", "sammael ravenwing": "sammael", "chaplain ravenwing": "ravenwing chaplain" };
+export const datasheetKey = (n) => String(n || "").replace(/^(left|right|center|centre)\s+/i, "").replace(/\s*(—.*|×\s*\d+|x\s*\d+|\d+)$/i, "").replace(/^\d+\s+/, "").trim().toLowerCase();
+
+/** Find the datasheet row for a unit by explicit link, name or alias. */
+export function matchDatasheet(u, sheets) {
+  if (!sheets?.length || !u) return null;
+  if (u.datasheet) { const s = sheets.find((x) => x.slug === u.datasheet || x.name === u.datasheet); if (s) return s; }
+  let n = datasheetKey(u.name); n = DATASHEET_ALIASES[n] || n;
+  const plain = (x) => x.toLowerCase().replace(/[’']/g, "");
+  return sheets.find((s) => s.name.toLowerCase() === n) || sheets.find((s) => plain(s.name) === plain(n)) || sheets.find((s) => n.length > 3 && s.name.toLowerCase().startsWith(n)) || null;
+}
+
+/** Fill unknown W, OC and keywords from a datasheet. Returns true if anything changed. */
+export function applyDatasheet(u, s) {
+  if (!s) return false;
+  let changed = false;
+  if (!u.datasheet) { u.datasheet = s.slug; changed = true; }
+  const p = s.profiles?.[0];
+  if (p && u.wounds == null && Number(p.W)) { u.wounds = Number(p.W); (u.models || []).forEach((m) => { if (m.wounds == null) m.wounds = u.wounds; }); changed = true; }
+  if (p && u.oc == null && p.OC != null && p.OC !== "-" && !isNaN(Number(p.OC))) { u.oc = Number(p.OC); changed = true; }
+  if (!u.keywords?.length && s.keywords?.length) { u.keywords = s.keywords; changed = true; }
+  return changed;
+}
+
 /* ---------- compact summaries (for MCP / AI opponents) ---------- */
 
 export function unitSummary(u, opts = {}) {
@@ -736,7 +763,7 @@ export function unitSummary(u, opts = {}) {
     if (hurt.length) s.wounded = hurt;
   }
   s.move = round2(allowance(u));
-  if (u.spent) s.moved = round2(u.spent);
+  if (u.spent && u.locationState === "deployed") s.moved = round2(u.spent);
   if (u.attachedTo != null) s.attachedTo = u.attachedTo;
   if (u.transportId != null && u.locationState === "embarked") s.in = u.transportId;
   if (u.effects?.length) s.effects = u.effects.map((e) => e.label);

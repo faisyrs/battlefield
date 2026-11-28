@@ -209,3 +209,17 @@ test("VP caps and history", () => {
   assert.equal(E.vpTotal(s.score.da), 55);
   assert.equal(s.score.da.history.length, 2);
 });
+
+test("datasheet matching handles numbering, sides and aliases", () => {
+  const sheets = [{ slug: "Gunwagon", name: "Gunwagon", profiles: [{ W: "16", OC: "5" }], keywords: ["VEHICLE"] }, { slug: "Ghazghkull-Thraka", name: "Ghazghkull Thraka", profiles: [{ W: "16", OC: "4" }] }, { slug: "Boyz", name: "Boyz", profiles: [{ W: "1", OC: "2" }] }, { slug: "Wazbom", name: "Wazbom Blastajet", profiles: [{ W: "12", OC: "-" }] }];
+  assert.equal(E.matchDatasheet({ name: "Left Gunwagon" }, sheets).slug, "Gunwagon");
+  assert.equal(E.matchDatasheet({ name: "Gunwagon 2" }, sheets).slug, "Gunwagon");
+  assert.equal(E.matchDatasheet({ name: "Ghaz" }, sheets).slug, "Ghazghkull-Thraka");
+  assert.equal(E.matchDatasheet({ name: "20 Boyz" }, sheets).slug, "Boyz");
+  const u = { name: "Gunwagon 1", models: [{}], wounds: null };
+  E.applyDatasheet(u, E.matchDatasheet(u, sheets));
+  assert.equal(u.wounds, 16); assert.equal(u.models[0].wounds, 16); assert.equal(u.oc, 5);
+  const j = { name: "Wazbom Blastajet", models: [{}], wounds: null };
+  E.applyDatasheet(j, E.matchDatasheet(j, sheets));
+  assert.equal(j.oc, undefined);
+});
