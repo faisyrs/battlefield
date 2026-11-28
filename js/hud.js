@@ -66,7 +66,7 @@ dialog.hud .card{background:#223442;border:1px solid #36505f;border-radius:8px;p
 dialog.hud .cardh{display:flex;gap:6px;align-items:center;margin-bottom:4px}
 dialog.hud .cond{display:flex;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid #2e4452;font-size:13px}
 dialog.hud .cond.got{background:#1e4a3a55}dialog.hud .cond .vp{min-width:44px;font-weight:700;color:#ffe080;font-size:12px}
-dialog.hud .cond .txt{flex:1}dialog.hud .cond input[type=checkbox]{width:24px;height:24px}
+dialog.hud .cond .txt{flex:1}dialog.hud .cond .when{font-size:11px;color:#9fb6c3;margin-top:2px}dialog.hud .cond .when.now{color:#ffe080;font-weight:700}dialog.hud .cond.nowc{box-shadow:inset 3px 0 #ffe080}dialog.hud .cond input[type=checkbox]{width:24px;height:24px}
 dialog.hud .ctr{display:inline-flex;gap:6px;align-items:center}dialog.hud .ctr button{min-width:34px;padding:6px}dialog.hud .ctr b{min-width:18px;text-align:center}
 dialog.hud .totals{position:sticky;bottom:-12px;background:#16242e;padding:8px;margin-top:10px;border-top:1px solid #36505f;font-size:13px}
 dialog.hud .sumcard{background:#f2f2f2;color:#111;border-radius:10px;overflow:hidden;margin:10px 0}
@@ -482,6 +482,35 @@ function primaryFor(st, side) {
 }
 const conds = (m) => (Array.isArray(m?.scoring) ? m.scoring : m?.scoring?.conditions || []);
 const isEob = (c) => /end of battle/i.test(c.timing || "");
+// Friendly scoring timing, e.g. "own command phase end; own turn end in round 5".
+function timingText(c) {
+  const t = String(c.timing || "").trim();
+  if (!t) return "Timing not recorded";
+  const piece = (x) => {
+    x = x.trim().toLowerCase();
+    const r = (x.match(/in round (\d)/) || [])[1];
+    let out = /end of battle/.test(x) ? "End of battle"
+      : /command/.test(x) ? (/start/.test(x) ? "Start" : "End") + " of " + (/either/.test(x) ? "either player's" : /opponent/.test(x) ? "opponent's" : "your") + " Command phase"
+      : /turn/.test(x) ? (/start/.test(x) ? "Start" : "End") + " of " + (/either/.test(x) ? "either player's" : /opponent/.test(x) ? "opponent's" : "your") + " turn"
+      : /while card active/.test(x) ? "While the card is active"
+      : x.charAt(0).toUpperCase() + x.slice(1);
+    return r ? out + " (round " + r + ")" : out;
+  };
+  return t.split(/;/).map(piece).join(" · or ");
+}
+// Does this condition score at the current moment of the game for this side?
+function scoresNow(c, st, side, round) {
+  const t = String(c.timing || "").toLowerCase(), cur = st.turn;
+  if (round !== cur.round) return false;
+  const mine = cur.active === side, own = !/either|opponent/.test(t), opp = /opponent/.test(t);
+  const whoOk = /either/.test(t) || (own && mine) || (opp && !mine);
+  if (!whoOk) return false;
+  const r5turn = /turn end in round 5/.test(t) && round === 5;
+  if (/command/.test(t) && !r5turn) return cur.phase === "command";
+  if (/turn end|end of turn|r5/.test(t) || r5turn) return cur.phase === "fight";
+  if (/end of battle/.test(t)) return round === 5 && cur.phase === "fight";
+  return false;
+}
 let commitTimer = null;
 function commitSoon(action = "score") { clearTimeout(commitTimer); commitTimer = setTimeout(async () => { if (saving) return commitSoon(action); await commit(action); }, 700); render(); }
 
@@ -514,7 +543,9 @@ function openObjectives(ctx = {}) {
       const ctl = E.isCounter(c)
         ? el("span", { class: "ctr" }, btn("−", () => set(cur - 1), { disabled: !cur }), el("b", {}, cur), btn("+", () => set(cur + 1), { disabled: !!(c.max && (cur + 1) * c.vp > c.max) }))
         : (() => { const cb = el("input", { type: "checkbox" }); cb.checked = !!cur; cb.onchange = () => set(cb.checked ? 1 : 0); return cb; })();
-      return el("div", { class: "cond" + (cur ? " got" : "") }, el("span", { class: "vp" }, c.vp + (E.isCounter(c) ? "×" : "") + " VP"), el("span", { class: "txt" }, text, hint, isEob(c) ? el("small", { class: "muted" }, " · end of battle") : ""), ctl);
+      const now = scoresNow(c, st, side, round);
+      return el("div", { class: "cond" + (cur ? " got" : "") + (now ? " nowc" : "") }, el("span", { class: "vp" }, c.vp + (E.isCounter(c) ? "×" : "") + " VP"),
+        el("span", { class: "txt" }, text, hint, el("div", { class: "when" + (now ? " now" : "") }, "⏱ " + timingText(c) + (now ? " — score now" : ""))), ctl);
     };
     const subtotal = (kind, mission) => Object.values(sc.sheet?.[round] || {}).filter((e) => e.kind === kind && e.mission === mission).reduce((a, e) => a + e.n * e.vp, 0);
     const pm = primaryFor(st, side);
